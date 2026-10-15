@@ -331,6 +331,19 @@ window.addEventListener('message', function(event) {
         <button class="btn btn-xs btn-ghost btn-danger" onclick="clearStudents()">Alles wissen</button>
       </div>
     </div>
+    <div class="card">
+      <div class="card-title">Formulier voor deze klas</div>
+      <div class="card-sub">Nog geen Forms-vragenlijst voor deze klas? Download een Word-bestand met de 18 Kouterschool-vragen en de namen hierboven als antwoordopties, en importeer het in Microsoft Forms.</div>
+      <button class="btn btn-sm" id="formDocBtn" onclick="downloadFormsDoc()">⬇ Word-bestand voor Forms downloaden</button>
+      <div class="info-box" style="margin-top:12px">
+        <strong>Zo maak je het formulier:</strong><br>
+        1. Ga naar <strong>forms.office.com</strong> → <strong>Snel importeren</strong> en kies het gedownloade bestand<br>
+        2. Kies <strong>Formulier</strong> (geen quiz) en controleer de vragen<br>
+        3. Zet bij vraag 3 tot en met 18 <strong>Meerdere antwoorden</strong> aan, en zet alle vragen op <strong>Vereist</strong><br>
+        4. Pas de vraagtitels niet aan — dan koppelt de app de kolommen automatisch<br>
+        5. Instellingen: <em>Alleen personen in mijn organisatie</em>, en zet <em>Naam vastleggen</em> uit (de leerling kiest zijn naam bij vraag 2)
+      </div>
+    </div>
     <div class="nav-row">
       <span style="font-size:13px;color:var(--text-muted)" id="studentCount">0 leerlingen</span>
       <button class="btn btn-primary" onclick="goStep(2)">Vragen instellen →</button>
@@ -526,6 +539,44 @@ function loadDemo(){
   renderStudents();
 }
 
+/* ── FORMS-BESTAND (Snel importeren) ── */
+function loadDocxLib(){
+  if(window.docx)return Promise.resolve();
+  return new Promise(function(res,rej){
+    var s=document.createElement('script');
+    s.src='https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js';
+    s.onload=res;s.onerror=function(){rej(new Error('Bibliotheek kon niet geladen worden'));};
+    document.head.appendChild(s);
+  });
+}
+async function downloadFormsDoc(){
+  if(students.length<2){alert('Voeg eerst de leerlingen van de klas toe (minstens 2).');return;}
+  var btn=document.getElementById('formDocBtn');btn.disabled=true;var oud=btn.textContent;btn.textContent='Bezig…';
+  try{
+    await loadDocxLib();
+    var D=window.docx;
+    var klas=(document.getElementById('klasInput').value||'').trim();
+    var namen=students.slice().sort(function(a,b){return a.localeCompare(b,'nl');});
+    var vragen=[{name:ADMIN_VRAGEN[0],opties:['Ja','Nee']},{name:ADMIN_VRAGEN[1],opties:namen}]
+      .concat((questions.length?questions:KOUTER_VRAGEN).map(function(q){return {name:q.name,opties:namen};}));
+    var kids=[
+      new D.Paragraph({heading:D.HeadingLevel.TITLE,children:[new D.TextRun('Sociogram Kouterschool'+(klas?' – '+klas:''))]}),
+      new D.Paragraph({children:[new D.TextRun('Lees elke vraag rustig. Er zijn geen goede of foute antwoorden. Je antwoorden blijven tussen jou en je juf of meester.')]}),
+      new D.Paragraph({text:''})
+    ];
+    vragen.forEach(function(v,i){
+      kids.push(new D.Paragraph({spacing:{before:240},children:[new D.TextRun({text:(i+1)+'. '+v.name,bold:true})]}));
+      v.opties.forEach(function(o,j){kids.push(new D.Paragraph({children:[new D.TextRun((j>=26?String.fromCharCode(64+Math.floor(j/26)):'')+String.fromCharCode(65+j%26)+'. '+o)]}));});
+    });
+    var doc=new D.Document({creator:'Sociogram Kouterschool',styles:{default:{document:{run:{font:'Calibri',size:22}}}},sections:[{children:kids}]});
+    var blob=await D.Packer.toBlob(doc);
+    var a=document.createElement('a');a.href=URL.createObjectURL(blob);
+    a.download='Sociogram Kouterschool'+(klas?' '+klas.replace(/[\\/:*?"<>|]/g,''):'')+'.docx';
+    document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},1000);
+  }catch(e){alert('Het Word-bestand kon niet gemaakt worden: '+e.message);}
+  finally{btn.disabled=false;btn.textContent=oud;}
+}
+
 /* ── STAP 2: VRAGEN ── */
 // ── Vaste vragenset Kouterschool (nr = vraagnummer in Forms) ──
 const KOUTER_VRAGEN=[
@@ -619,7 +670,7 @@ function normName(s){
 function splitMultiValue(cell){
   return cleanCell(cell)
     .split(/[;|]/)
-    .map(function(v){return cleanCell(v);})
+    .map(function(v){return cleanCell(v).replace(/^[A-Z]{1,2}\.\s+/,'');}) // letter-prefix van Snel importeren
     .filter(function(v){return v.length>0;});
 }
 
